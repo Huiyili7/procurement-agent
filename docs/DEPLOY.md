@@ -49,6 +49,7 @@ docker compose up --build
 - **端口被占**：把 compose 里 `8000:8000` 左边换成别的，如 `8080:8000`。
 
 ## 接口（给前端或外部调用）
-- `POST /chat` `{thread_id, message}` → `{type:"reply"|"interrupt", ...}`
-- `POST /resume` `{thread_id, decision}` → 同上（HITL 确认后续跑）
-- `GET /health`、`GET /`（聊天页）
+- `POST /chat/stream` `{thread_id, message}` → **SSE 流**：逐节点 `{type:"step"}`，遇确认 `{type:"interrupt"}`，结束 `{type:"reply"}` + `{type:"done"}`（前端默认用这个，能实时看 agent 步骤）。
+- `POST /resume/stream` `{thread_id, decision}` → 同上（HITL 确认后续跑，流式）。
+- `POST /chat`、`POST /resume` → 非流式版（一次返回最终结果，便于脚本/测试调用）。
+- `GET /health`、`GET /`（聊天页）。

@@ -93,6 +93,14 @@ docs/INTERVIEW.md  面试题库(题+答) + 简历 bullet
 - **Q3 每轮多次 LLM 调用** → 模型分层已落地；进一步降延迟（如单 subagent 跳过路由、缓存）列入 P2 优化。
 - **Q4 简历口径** → 已整理成可直接用的 bullet，见 `docs/INTERVIEW.md` 末尾"简历口径"。
 
+## 已知告警（非阻塞）
+
+- langgraph 日志：`Deserializing unregistered type agent.schemas.IntakeResult from checkpoint ... blocked in a future version`。
+  原因：父 state 里存了 Pydantic 模型(IntakeResult/AnalysisResult)，checkpointer 持久化时按 msgpack 序列化。
+  现状：当前版本能正常反序列化、只是告警；sqlite/postgres 续跑实测正常。
+  以后要彻底消除：① 在持久化通道里改存 `model_dump()` 的 dict、用到时再构 Pydantic；或 ② 注册 allowed_msgpack_modules。
+  暂不改（要动 state/orchestrator/tests，收益小）。
+
 ## 4next. 下一步建议（P2 / 打磨）
 
 - **Compliance subagent**（查表四标志 REACH/RoHS/CMRT/RBA）：纯 mock 查表，最快能加的第 3 个 subagent，进一步证明架构可扩展。

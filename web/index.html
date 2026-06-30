@@ -19,6 +19,7 @@
     .user .bubble { background: #2b5cff; color: #fff; border-bottom-right-radius: 2px; }
     .bot .bubble { background: #fff; border: 1px solid #e5e6eb; border-bottom-left-radius: 2px; }
     .meta { font-size: 12px; color: #86909c; margin: 2px 6px; }
+    .step { font-size: 12px; color: #86909c; margin: 4px 10px; font-style: italic; }
     #confirm { background: #fff7e6; border: 1px solid #ffd591; border-radius: 12px;
                padding: 12px 14px; margin: 10px 0; font-size: 14px; }
     #confirm button { margin-right: 8px; margin-top: 8px; padding: 6px 16px; border: none;
@@ -82,23 +83,46 @@
         + `<button class="ok">确认执行</button><button class="no">取消</button>`;
       log.appendChild(box);
       log.scrollTop = log.scrollHeight;
-      box.querySelector(".ok").onclick = () => { box.remove(); post("/resume", { thread_id: threadId, decision: "y" }); };
-      box.querySelector(".no").onclick = () => { box.remove(); post("/resume", { thread_id: threadId, decision: "n" }); };
+      box.querySelector(".ok").onclick = () => { box.remove(); streamPost("/resume/stream", { thread_id: threadId, decision: "y" }); };
+      box.querySelector(".no").onclick = () => { box.remove(); streamPost("/resume/stream", { thread_id: threadId, decision: "n" }); };
+    }
+
+    function addStep(text) {
+      const el = document.createElement("div");
+      el.className = "step";
+      el.textContent = "· " + text;
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
     }
 
     function handle(data) {
+      if (data.type === "step") { addStep(data.label); return; }
       if (data.type === "interrupt") { showConfirm(data); return; }
-      addMsg(data.reply, "bot");
-      showPanel(data);
+      if (data.type === "reply") { addMsg(data.reply, "bot"); showPanel(data); return; }
+      // type === "done"：流结束，无需处理
     }
 
-    async function post(url, body) {
+    // 读 SSE 流：按 "\n\n" 切帧，取 data: 行解析成事件逐个 handle。
+    async function streamPost(url, body) {
       send.disabled = true;
       try {
-        const r = await fetch(url, {
+        const resp = await fetch(url, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });
-        handle(await r.json());
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n\n")) >= 0) {
+            const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (line) handle(JSON.parse(line.slice(5).trim()));
+          }
+        }
       } catch (e) {
         addMsg("（网络错误：" + e + "）", "bot");
       } finally {
@@ -111,7 +135,7 @@
       if (!text) return;
       addMsg(text, "user");
       inp.value = "";
-      post("/chat", { thread_id: threadId, message: text });
+      streamPost("/chat/stream", { thread_id: threadId, message: text });
     }
     send.onclick = submit;
     inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
