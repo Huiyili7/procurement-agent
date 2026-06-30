@@ -5,14 +5,31 @@
 
 ## 这是什么（架构）
 
-**父 Orchestrator + 角色化 Subagent**，全手写（不用 `create_react_agent`/`langgraph-supervisor` 黑盒）：
+**父 Orchestrator + 3 个角色化 Subagent**，全手写（不用 `create_react_agent`/`langgraph-supervisor` 黑盒）：
 
 ```
-用户 → 父图 route(结构化路由) ──intake──> Intake 子图(自有 state/工具/prompt)
-                              └─direct──> 直接回复          │
-父图只收 IntakeResult 摘要(上下文隔离) ◄───────────────────┘
-Intake 子图：agent ──tool_calls?──是──> tools(自定义,破坏性→interrupt 确认) ──> agent
-                                  └─否──> summarize(结构化输出 IntakeResult) → END
+                          用户
+                           │
+                    ┌──────▼───────┐
+                    │ guard 护栏    │ 确定性拦注入/越权(非 LLM)
+                    └──────┬───────┘
+                    ┌──────▼───────┐
+                    │ route 路由    │ 结构化输出 RouteDecision
+                    └─┬───┬───┬──┬─┘
+            intake │   │   │  │ direct(直接回复)
+          ┌────────▼┐ ┌▼──────┐ ┌▼─────────┐
+          │ Intake  │ │Analytics│ │Compliance│   每个=独立子图：
+          │ 受理+HITL│ │花费分析  │ │合规查表   │   自有 state/工具裁剪/
+          └────┬────┘ └───┬────┘ └────┬─────┘   prompt/模型分层
+               └──────────┴───────────┘
+                           │ 只回 Pydantic 摘要(上下文隔离)
+                    ┌──────▼───────┐
+                    │ checkpointer │ memory/sqlite/postgres
+                    │ (多轮+HITL续跑)│
+                    └──────────────┘
+
+Intake 子图：agent ─tool_calls?─是→ tools(破坏性→interrupt 二次确认) →agent
+                              └─否→ summarize(结构化输出 IntakeResult) → END
 ```
 
 - `agent/config.py` — LLM 入口 + `get_structured_llm`（DeepSeek 兼容的结构化输出）
@@ -53,8 +70,10 @@ docker compose up --build           # C. Docker：app + Postgres 双容器，开
 3. ✅ **M3 持久化强化** — checkpointer 工厂(memory/sqlite/postgres) + 跨重启续跑 + 跨轮 draft 上下文
 4. ✅ **M4 第 2 个 subagent(Analytics) + 模型分层** — 快模型工具调用 / 深模型纯推理综合 / 工具裁剪
 5. ✅ **M5 评测 + 可观测** — eval 集 + LLM-as-judge + CI 门槛 + LangSmith(env 驱动)
-6. ✅ **护栏** — 父图入口确定性输入校验(拦 prompt-injection)
-7. ⬜ **P2** — Compliance(查表四标志,可 mock) / Sourcing(接 PartFuse 真实 API)
+6. ✅ **护栏 + 部署** — 确定性输入校验;FastAPI(SSE 流式) + Web 前端 + Docker(app+postgres)
+7. ✅ **Compliance subagent** — 查表四标志 REACH/RoHS/CMRT/RBA(第 3 个 subagent)
+8. ✅ **CI** — GitHub Actions 跑 ruff + 28 个确定性测试
+9. ⬜ **P2** — Sourcing(接 PartFuse 真实电子料 API,需 key) / 真实 LangSmith trace / demo 录屏
 
 ## 面试自检
 

@@ -10,7 +10,7 @@
 import os
 from abc import ABC, abstractmethod
 
-from .models import PurchaseRecord, SpendRecord
+from .models import ComplianceRecord, PurchaseRecord, SpendRecord
 
 
 class PurchaseRepository(ABC):
@@ -24,6 +24,11 @@ class PurchaseRepository(ABC):
     @abstractmethod
     def spend_records(self) -> list[SpendRecord]:
         """返回全部花费记录(供 Analytics 聚合分析)。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def compliance_for(self, supplier: str) -> ComplianceRecord | None:
+        """查某供应商的四标志合规记录，未命中返回 None。"""
         raise NotImplementedError
 
 

@@ -216,6 +216,33 @@ A：route 存在 checkpointer 里会跨轮残留。若 guard 放行时不置位�
 
 ---
 
+## 第 3 个 Subagent：Compliance（合规查表）
+
+代码：`agent/subagents/compliance.py`、`agent/tools.py::check_compliance`。
+
+**Q1. 加第 3 个 subagent 改了多少既有代码？说明什么？**
+A：几乎没动既有 agent——加了 schema(`ComplianceReport`)、数据(`ComplianceRecord`+seed)、工具(`check_compliance`)、子图文件、父图一个节点+一条边+路由枚举。intake/analytics **一行没改**。这就是"薄父 + 角色化 subagent"的扩展成本：**线性、隔离、开闭**。
+
+**Q2. 为什么 Compliance 的合规结论是"确定性查表"而不是让 LLM 判？**
+A：合规判定必须**可审计、可复现、不能被模型幻觉带偏**。所以 `check_compliance` 是纯查表(mock 表，未来换真实合规库),LLM 只负责"从自然语言里认出供应商名"这件它擅长的事。**该用 LLM 的地方用(NL 理解)，不该用的地方坚决不用(合规裁决)**——这是 agent 工程的判断力，面试常考"哪些环节不能交给 LLM"。
+
+**Q3. 三个 subagent 的工具/模型差异，体现了哪几条多 agent 机制？**
+A：工具裁剪(intake 4 个/analytics 1 个/compliance 1 个，各 bind 各的)、提示词专门化(各自 system prompt)、模型分层(analytics 综合用深模型，其余用快模型)、上下文隔离(各自 state，父只收 Pydantic 摘要)。一套机制，三个角色复用。
+
+---
+
+## 持续集成（CI）
+
+代码：`.github/workflows/ci.yml`。
+
+**Q1. CI 里跑什么？为什么 eval 不进 CI 主流程？**
+A：CI 跑 `ruff`(静态检查) + `pytest`(28 个确定性测试，不联网、免费)。eval 需要真实 LLM key、慢且花钱，所以用 `RUN_EVAL=1` 守卫、默认 skip，留给带 secret 的单独场景。**确定性测试当门禁(每次必跑)，eval 当回归(按需/定期)**——这是成本与信号的平衡。
+
+**Q2. CI 没有 key 怎么 import 不报错？**
+A：`intake/analytics/compliance` 在 import 时会构造 `ChatOpenAI`(读 `OPENAI_API_KEY`)。CI 里给一个假 key(`sk-ci-dummy`)即可——构造模型和 `bind_tools` 都是本地操作、不发请求，而确定性测试用手搓数据/打桩，不触发真实调用。
+
+---
+
 ## 部署（FastAPI + Docker）
 
 代码：`api.py`、`web/index.html`、`Dockerfile`、`docker-compose.yml`。详见 `docs/DEPLOY.md`。
@@ -244,10 +271,10 @@ A：页面走到下单确认前，`docker compose restart app`，再用同一会
 
 > 基于本人在 xTool 上线、51 名工程师在用的机械部自采系统经验（沟通轮次 6.5→0.2、月省≈40h），独立用 **Python + LangGraph** 将其核心重写为**多 Agent 采购系统**（个人作品，非生产系统本身）：
 
-- **手写父 Orchestrator + 角色化 Subagent**（Intake 受理 / Analytics 花费分析），不用 `create_react_agent`/`supervisor` 黑盒；通过**不同 state schema + wrapper 节点**实现父子图**上下文隔离**（父只存 Pydantic 结构化摘要，子图内部消息不外泄）。
+- **手写父 Orchestrator + 3 个角色化 Subagent**（Intake 受理 / Analytics 花费分析 / Compliance 合规查验），不用 `create_react_agent`/`supervisor` 黑盒；通过**不同 state schema + wrapper 节点**实现父子图**上下文隔离**（父只存 Pydantic 结构化摘要，子图内部消息不外泄）；加第 3 个 subagent 几乎零改动既有 agent，验证架构线性可扩展。
 - **工具契约层（Tool-as-Contract）**：副作用标志（read_only/destructive/concurrency_safe）挂在工具上，调度器只读契约做决策；破坏性工具走 **HITL `interrupt()` 二次确认**；一份 Pydantic schema 双用（LLM function-calling + 运行时校验）兜底弱模型传参。
 - **模型分层**：实测 deepseek-reasoner 不支持 function-calling，据此把**工具调用/结构化用快模型、纯推理综合用深模型**。
-- **工程严谨度**：可切换 checkpointer（memory/sqlite/postgres）支持**跨重启续跑**；确定性**护栏**拦 prompt-injection；**eval 评测集 + LLM-as-judge + CI 回归门槛**（基线 routing/field/task 均 100%）；LangSmith 全链路 trace。
+- **工程严谨度**：可切换 checkpointer（memory/sqlite/postgres）支持**跨重启续跑**；确定性**护栏**拦 prompt-injection；**28 个确定性单测 + GitHub Actions CI（ruff+pytest）+ eval 评测集 + LLM-as-judge**（基线 routing/field/task 均 100%）；LangSmith 全链路 trace。
 - **可观测驱动的 debug**：通过 eval 断言发现并定位"宽 except 掩盖 DeepSeek 400 response_format 不兼容"的隐藏 bug，沉淀为 `get_structured_llm` 统一封装。
 - **服务化与部署**：FastAPI 把多轮 + HITL 映射到 HTTP（`/chat` 返回 interrupt、`/resume` 续跑）；极简 Web 前端含下单确认弹窗；Docker Compose 编排 app + Postgres 双容器，`CHECKPOINTER=postgres` 实现跨容器重启的对话续跑。
 

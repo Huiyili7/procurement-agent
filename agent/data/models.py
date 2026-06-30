@@ -29,3 +29,13 @@ class SpendRecord(BaseModel):
     category: str = Field(description="物料类别，如 轴承/刀具/紧固件")
     amount: float = Field(description="金额(元)")
     month: str = Field(description="月份 YYYY-MM")
+
+
+class ComplianceRecord(BaseModel):
+    """一条供应商合规记录：四标志各自是否合规(供 Compliance 查表)。"""
+
+    supplier: str = Field(description="供应商名称")
+    reach: bool = Field(description="REACH 是否合规")
+    rohs: bool = Field(description="RoHS 是否合规")
+    cmrt: bool = Field(description="CMRT 是否合规")
+    rba: bool = Field(description="RBA 是否合规")

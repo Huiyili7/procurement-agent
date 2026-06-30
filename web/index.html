@@ -69,6 +69,8 @@
           + `份数=${d.quantity ?? "-"} 项目=${d.project_code ?? "-"} | 缺=${(data.missing||[]).join(",")||"无"} | 阶段=${data.stage}`;
       } else if (data.analysis) {
         panel.textContent = `分析口径：${data.analysis.method} | 关键数字：${JSON.stringify(data.analysis.figures)}`;
+      } else if (data.compliance) {
+        panel.textContent = `合规：${data.compliance.supplier} ${JSON.stringify(data.compliance.flags)} | 全合规=${data.compliance.compliant}`;
       } else {
         panel.textContent = data.route ? `路由：${data.route}` : "";
       }

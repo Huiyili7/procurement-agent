@@ -38,8 +38,11 @@ class RouteDecision(BaseModel):
     加 subagent 时往 target 里加枚举 + 在父图加一个节点即可，路由"机制"不变。
     """
 
-    target: Literal["intake", "analytics", "direct"] = Field(
-        description="intake=采购受理(买东西/补信息); analytics=花费/统计分析提问; direct=寒暄或无关,直接回复"
+    target: Literal["intake", "analytics", "compliance", "direct"] = Field(
+        description=(
+            "intake=采购受理(买东西/补信息); analytics=花费/统计分析提问; "
+            "compliance=供应商合规查验(REACH/RoHS/CMRT/RBA); direct=寒暄或无关,直接回复"
+        )
     )
     reason: str = Field(description="为何这样路由(一句话)")
     direct_reply: str | None = Field(
@@ -53,3 +56,14 @@ class AnalysisResult(BaseModel):
     answer: str = Field(description="给用户的分析结论(自然语言)")
     figures: dict[str, float] = Field(default_factory=dict, description="关键数字，便于审计/复核")
     method: str = Field(default="", description="怎么算的(口径)，可审计")
+
+
+class ComplianceReport(BaseModel):
+    """Compliance subagent 的结构化摘要：供应商的四标志合规情况。"""
+
+    supplier: str = Field(description="供应商名称")
+    flags: dict[str, str] = Field(
+        default_factory=dict, description="四标志状态，如 {REACH: 合规, RoHS: 不合规}"
+    )
+    compliant: bool = Field(default=False, description="四项是否全部合规")
+    note: str = Field(default="", description="补充说明")

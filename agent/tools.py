@@ -149,8 +149,28 @@ def query_spend(group_by: str) -> str:
     return f"按 {group_by} 汇总(总计 {total:.0f}元)：\n" + "\n".join(lines)
 
 
+class CheckComplianceArgs(BaseModel):
+    supplier: str = Field(description="供应商名称，如 SKF / 米思米")
+
+
+@tool(args_schema=CheckComplianceArgs, extras=contract(READ_ONLY, "正在查合规四标志…"))
+def check_compliance(supplier: str) -> str:
+    """查供应商的四标志合规情况(REACH/RoHS/CMRT/RBA)。问"某供应商合不合规"时调用。
+
+    这是确定性查表(不是 LLM 推断)：合规判定必须可审计、可复现，绝不靠模型猜。
+    """
+    rec = get_repository().compliance_for(supplier)
+    if rec is None:
+        return f"未找到供应商「{supplier}」的合规记录，需人工核验。"
+    flags = {"REACH": rec.reach, "RoHS": rec.rohs, "CMRT": rec.cmrt, "RBA": rec.rba}
+    txt = " ".join(f"{k}:{'合规' if v else '不合规'}" for k, v in flags.items())
+    overall = "四项全部合规" if all(flags.values()) else "存在不合规项"
+    return f"{rec.supplier} | {txt} | {overall}"
+
+
 # 工具裁剪(PRD §5 机制2)：每个 subagent 只绑定自己那几个工具，不是一股脑全给。
 INTAKE_TOOLS = [search_purchase_history, validate_item_link, create_requirement, transfer_to_human]
 ANALYTICS_TOOLS = [query_spend]
+COMPLIANCE_TOOLS = [check_compliance]
 # 全量注册表(给契约测试/调度器用)。
-TOOLS = INTAKE_TOOLS + ANALYTICS_TOOLS
+TOOLS = INTAKE_TOOLS + ANALYTICS_TOOLS + COMPLIANCE_TOOLS

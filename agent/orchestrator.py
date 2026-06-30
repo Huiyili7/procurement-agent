@@ -19,11 +19,13 @@ from .persistence import get_checkpointer
 from .schemas import IntakeResult, RouteDecision
 from .state import ParentState
 from .subagents.analytics import analytics_app
+from .subagents.compliance import compliance_app
 from .subagents.intake import intake_app
 
 ROUTER_PROMPT = """你是 xTool 采购系统的调度器。看用户最新一条消息，判断该怎么分派：
 - target=intake：用户在提采购需求、补充采购信息、或问能不能买某物料(进入受理流程)。
 - target=analytics：用户在问花费/统计/分析(哪个项目花得多、各类别占比、各月趋势等)。
+- target=compliance：用户在问某供应商是否合规、四标志(REACH/RoHS/CMRT/RBA)情况。
 - target=direct：寒暄、问"你能做什么"、或与采购无关。此时给出 direct_reply 直接回答用户。
 只输出结构化决策。"""
 
@@ -62,7 +64,7 @@ def route_node(state: ParentState) -> dict:
 
 def route_selector(state: ParentState) -> str:
     route = state.get("route")
-    return route if route in ("intake", "analytics") else END
+    return route if route in ("intake", "analytics", "compliance") else END
 
 
 def _draft_hint(result: IntakeResult | None) -> str:
@@ -110,19 +112,36 @@ def analytics_node(state: ParentState, config) -> dict:
     return {"messages": [AIMessage(reply)], "analysis_result": result}
 
 
+def compliance_node(state: ParentState, config) -> dict:
+    """Wrapper：调 Compliance 子图(同样隔离，回传 ComplianceReport 摘要)。"""
+    question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
+    out = compliance_app.invoke({"messages": [question]}, config)
+    result = out.get("result")
+    if result is not None:
+        flags = " ".join(f"{k}:{v}" for k, v in result.flags.items())
+        reply = f"供应商「{result.supplier}」合规情况：{flags}。{result.note}"
+    else:
+        reply = out["messages"][-1].content
+    return {"messages": [AIMessage(reply)], "compliance_result": result}
+
+
 def build_orchestrator(checkpointer=None):
     builder = StateGraph(ParentState)
     builder.add_node("guard", guard_node)
     builder.add_node("route", route_node)
     builder.add_node("intake", intake_node)
     builder.add_node("analytics", analytics_node)
+    builder.add_node("compliance", compliance_node)
     builder.add_edge(START, "guard")
     builder.add_conditional_edges("guard", guard_selector, {"route": "route", END: END})
     builder.add_conditional_edges(
-        "route", route_selector, {"intake": "intake", "analytics": "analytics", END: END}
+        "route",
+        route_selector,
+        {"intake": "intake", "analytics": "analytics", "compliance": "compliance", END: END},
     )
     builder.add_edge("intake", END)
     builder.add_edge("analytics", END)
+    builder.add_edge("compliance", END)
     # 父图带 checkpointer：多轮对话靠 thread_id 续；interrupt/resume 也依赖它。
     # 后端由 get_checkpointer() 按 CHECKPOINTER 环境变量选(memory|sqlite|postgres)，图结构不变。
     return builder.compile(checkpointer=checkpointer or get_checkpointer())

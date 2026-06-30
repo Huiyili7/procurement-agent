@@ -1,0 +1,25 @@
+name: CI
+
+# 每次 push / PR 自动跑 lint + 确定性测试(不联网、不需要 LLM key)。
+# eval 那条(需真实 LLM)默认 skip，只有设了 RUN_EVAL+key 的单独场景才跑。
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # 确定性测试不发真实请求，但 import 时会构造 ChatOpenAI(读 key)；给个假 key 即可。
+    env:
+      OPENAI_API_KEY: sk-ci-dummy-not-used
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: pip install -e ".[dev]"
+      - name: Ruff 静态检查
+        run: ruff check .
+      - name: Pytest(确定性单测)
+        run: pytest tests/ -q

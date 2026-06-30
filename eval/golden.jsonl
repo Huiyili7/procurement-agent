@@ -6,3 +6,5 @@
 {"id": "intake-missing", "input": "我要买点螺丝", "expect_route": "intake", "judge": "助手应当追问缺失的必填项(链接/份数/项目代号之一)，而不是直接下单"}
 {"id": "analytics-category", "input": "各物料类别的采购花费分布如何？", "expect_route": "analytics", "judge": "回答应指出刀具是花费最高的类别"}
 {"id": "analytics-project", "input": "按项目看，哪个项目采购金额最高？", "expect_route": "analytics", "judge": "回答应基于数据给出某个 IML 项目作为最高，并带金额"}
+{"id": "compliance-route", "input": "供应商 SKF 的四标志合规吗？", "expect_route": "compliance", "judge": "回答应给出 SKF 在 REACH/RoHS/CMRT/RBA 的合规情况"}
+{"id": "compliance-fail", "input": "米思米这家供应商合规情况怎么样", "expect_route": "compliance", "judge": "回答应指出米思米的 CMRT 不合规"}

@@ -15,7 +15,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph.message import add_messages
 
-from .schemas import AnalysisResult, IntakeResult
+from .schemas import AnalysisResult, ComplianceReport, IntakeResult
 
 
 class IntakeState(TypedDict, total=False):
@@ -34,6 +34,13 @@ class AnalyticsState(TypedDict, total=False):
     result: AnalysisResult
 
 
+class ComplianceState(TypedDict, total=False):
+    """Compliance subagent 自己的状态。"""
+
+    messages: Annotated[list, add_messages]
+    result: ComplianceReport
+
+
 class ParentState(TypedDict, total=False):
     """父 Orchestrator 的状态。只存用户可见对话 + 路由 + 各 subagent 的结构化摘要。"""
 
@@ -41,3 +48,4 @@ class ParentState(TypedDict, total=False):
     route: str
     intake_result: IntakeResult
     analysis_result: AnalysisResult
+    compliance_result: ComplianceReport

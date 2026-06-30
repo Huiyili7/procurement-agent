@@ -42,7 +42,10 @@
 - ✅ **护栏**：父图入口确定性 guard 节点，拦 prompt-injection/越权/异常输入。
 - ✅ **服务化 + 部署（2026-06-30 加）**：FastAPI(`api.py`：/chat、/resume 把多轮+HITL 映射到 HTTP) + 极简 Web 前端(`web/index.html`，含下单确认弹窗) + Docker(`Dockerfile`/`docker-compose.yml`：app+Postgres 双容器，`CHECKPOINTER=postgres` 跨重启续跑)。orchestrator 改惰性单例 `get_orchestrator()` 以适配容器启动顺序。本地 TestClient 已验证 /chat→interrupt→/resume 全流程；Docker 本机未装、文档化在 `docs/DEPLOY.md`。
 - **测试**：24 passed + 1 skipped(eval)；全部不联网、确定性。**面试题库（题+答）见 `docs/INTERVIEW.md`**（含 M1–M5+护栏+部署 + 3 个工程故事 + 简历 bullet）。
-- ⬜ **P2（未做，文档化为未来）**：Sourcing（需 PartFuse 真实 API，无 key 暂缓）、Compliance（查表四标志，可作纯 mock 快速加）。
+- ✅ **Compliance subagent（第 3 个）**：查表四标志 REACH/RoHS/CMRT/RBA(确定性 mock)，路由/隔离/结构化回传齐全；真模型实测识别"米思米 CMRT 不合规"。
+- ✅ **CI**：`.github/workflows/ci.yml` 跑 ruff + 28 个确定性测试(给 dummy key 让 import 通过)。
+- ✅ **Demo 脚本**：`docs/DEMO.md`（2 分钟录屏分镜）。
+- ⬜ **P2（未做）**：Sourcing（需 PartFuse 真实 API，无 key 暂缓）、真实 LangSmith trace 截图、录 demo 视频。
 
 ### 文件地图
 ```

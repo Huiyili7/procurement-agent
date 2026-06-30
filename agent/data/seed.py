@@ -3,7 +3,7 @@
 数据是手编的、脱敏的，纯粹为了把链路跑通和写 eval。
 真实/脱敏数据走 RealRepository(real.py) + .gitignore，不在这里。
 """
-from .models import PurchaseRecord, SpendRecord
+from .models import ComplianceRecord, PurchaseRecord, SpendRecord
 from .repository import PurchaseRepository
 
 _SEED_RECORDS: list[PurchaseRecord] = [
@@ -43,6 +43,13 @@ _SEED_SPEND: list[SpendRecord] = [
 ]
 
 
+_SEED_COMPLIANCE: list[ComplianceRecord] = [
+    ComplianceRecord(supplier="SKF", reach=True, rohs=True, cmrt=True, rba=True),
+    ComplianceRecord(supplier="米思米", reach=True, rohs=True, cmrt=False, rba=True),
+    ComplianceRecord(supplier="无名小厂", reach=False, rohs=False, cmrt=False, rba=False),
+]
+
+
 class SeedRepository(PurchaseRepository):
     def search_history(self, keyword: str) -> list[PurchaseRecord]:
         kw = keyword.lower()
@@ -54,3 +61,9 @@ class SeedRepository(PurchaseRepository):
 
     def spend_records(self) -> list[SpendRecord]:
         return list(_SEED_SPEND)
+
+    def compliance_for(self, supplier: str) -> ComplianceRecord | None:
+        return next(
+            (r for r in _SEED_COMPLIANCE if r.supplier in supplier or supplier in r.supplier),
+            None,
+        )

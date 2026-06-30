@@ -10,11 +10,12 @@ import json
 import os
 from pathlib import Path
 
-from .models import PurchaseRecord, SpendRecord
+from .models import ComplianceRecord, PurchaseRecord, SpendRecord
 from .repository import PurchaseRepository
 
 _DEFAULT_PATH = Path(__file__).parent / "_real" / "purchase_history.json"
 _DEFAULT_SPEND_PATH = Path(__file__).parent / "_real" / "spend.json"
+_DEFAULT_COMPLIANCE_PATH = Path(__file__).parent / "_real" / "compliance.json"
 
 
 class RealRepository(PurchaseRepository):
@@ -43,3 +44,12 @@ class RealRepository(PurchaseRepository):
         if not path.exists():
             return []
         return [SpendRecord(**item) for item in json.loads(path.read_text(encoding="utf-8"))]
+
+    def compliance_for(self, supplier: str) -> ComplianceRecord | None:
+        path = Path(os.environ.get("REAL_COMPLIANCE_PATH", _DEFAULT_COMPLIANCE_PATH))
+        if not path.exists():
+            return None
+        records = [ComplianceRecord(**item) for item in json.loads(path.read_text(encoding="utf-8"))]
+        return next(
+            (r for r in records if r.supplier in supplier or supplier in r.supplier), None
+        )

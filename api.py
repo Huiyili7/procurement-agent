@@ -51,6 +51,8 @@ def _final(state: dict) -> dict:
         out["stage"] = r.stage
     if state.get("analysis_result"):
         out["analysis"] = state["analysis_result"].model_dump()
+    if state.get("compliance_result"):
+        out["compliance"] = state["compliance_result"].model_dump()
     return out
 
 
