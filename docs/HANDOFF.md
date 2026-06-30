@@ -34,22 +34,71 @@
 
 ## 3. 当前进度
 
-- ✅ **M1 完成且作者已本机跑通**：最小 ReAct StateGraph（`agent` 节点 ↔ `tools` 节点 + 条件边 `should_continue`），2 个 mock 工具，CLI 多轮对话。
-- **已有文件**：`agent/{config,state,tools,graph}.py`、`main.py`、`pyproject.toml`（已修打包：`[tool.setuptools] packages=["agent"]`）、`.env.example`、`README.md`、`docs/PRD.md`、`eval/README.md`。
-- **运行**：`pip install -e .` → `copy .env.example .env`（填 DeepSeek key）→ `python main.py`。验收：输入"我要买几个轴承"→ agent 自动调 `search_purchase_history` + 追问缺失项。
+- ✅ **M1**：最小 ReAct StateGraph，2 个 mock 工具，CLI 多轮。
+- ✅ **M2**：工具契约层 / 数据层 / Intake subagent+HITL / 薄父 Orchestrator+上下文隔离 / 新入口。
+- ✅ **M3**：可切换 checkpointer（memory/sqlite/postgres 工厂）+ 跨重启续跑（sqlite 实测）+ §5b Q1 的 intake 跨轮 draft hint。
+- ✅ **M4**：第 2 个 subagent（Analytics 花费分析）+ 模型分层（快模型工具调用 / 深模型纯推理综合）+ 工具裁剪。
+- ✅ **M5**：eval 评测集 + 指标（routing/field/LLM-judge）+ CI 门槛 + LangSmith（env 驱动）。**基线 routing/field/task 全 100%。**
+- ✅ **护栏**：父图入口确定性 guard 节点，拦 prompt-injection/越权/异常输入。
+- ✅ **服务化 + 部署（2026-06-30 加）**：FastAPI(`api.py`：/chat、/resume 把多轮+HITL 映射到 HTTP) + 极简 Web 前端(`web/index.html`，含下单确认弹窗) + Docker(`Dockerfile`/`docker-compose.yml`：app+Postgres 双容器，`CHECKPOINTER=postgres` 跨重启续跑)。orchestrator 改惰性单例 `get_orchestrator()` 以适配容器启动顺序。本地 TestClient 已验证 /chat→interrupt→/resume 全流程；Docker 本机未装、文档化在 `docs/DEPLOY.md`。
+- **测试**：24 passed + 1 skipped(eval)；全部不联网、确定性。**面试题库（题+答）见 `docs/INTERVIEW.md`**（含 M1–M5+护栏+部署 + 3 个工程故事 + 简历 bullet）。
+- ⬜ **P2（未做，文档化为未来）**：Sourcing（需 PartFuse 真实 API，无 key 暂缓）、Compliance（查表四标志，可作纯 mock 快速加）。
 
-## 4. 下一步：M2（Tool 契约层 + Intake Subagent + 薄父 Orchestrator）
+### 文件地图
+```
+agent/
+  config.py        get_llm(tier=fast|deep) 模型分层 + get_structured_llm(function_calling)
+  schemas.py       RequirementDraft / IntakeResult / RouteDecision / AnalysisResult
+  state.py         IntakeState / AnalyticsState / ParentState —— 不同 schema = 隔离的根
+  tools.py         工具契约层 SideEffects；INTAKE_TOOLS(4) / ANALYTICS_TOOLS(1) 工具裁剪
+  guardrails.py    确定性输入护栏(规则,非 LLM)
+  persistence.py   get_checkpointer(): memory|sqlite|postgres 工厂
+  data/            Repository Pattern：repository/seed/real/models(含 SpendRecord)
+  subagents/
+    common.py      make_tools_node(): 契约驱动的工具节点工厂(intake/analytics 共用)
+    intake.py      受理子图：agent→tools(HITL interrupt)→summarize
+    analytics.py   分析子图：agent(快)→tools→synthesize(深)→structure(快)
+  orchestrator.py  父图：guard → route → {intake|analytics|direct}，get_checkpointer()
+main.py            CLI：多轮 + HITL 确认循环 + utf-8 stdout
+eval/              golden.jsonl(样本) + run_eval.py(指标 harness)
+tests/             contract/repository/isolation/hitl/persistence/analytics/guardrails/eval (24+1)
+docs/INTERVIEW.md  面试题库(题+答) + 简历 bullet
+```
 
-**目标**：把 M1 的单循环升级为"父 + 一个 subagent"地基，并落地工具契约。**逐块写、逐块讲、配面试题。**
+### 运行 & 验收
+- 安装：`./.venv/Scripts/python.exe -m pip install -e .`（dev：`pip install pytest ruff`）→ `.env` 已填 → `python main.py`。
+- 单测：`python -m pytest tests/ -q` → 24 passed, 1 skipped（**确定性、不联网**）。
+- 评测：`RUN_EVAL=1 python -m eval.run_eval`（真调 LLM，出指标表）。
+- 持久化 demo：`.env` 设 `CHECKPOINTER=sqlite` 后 `python main.py`，下单时确认前 Ctrl-C，重开同 thread 仍能续。
+- 已实测端到端：寒暄→direct；买轴承→intake 多轮 collecting→ready→submitted（含 interrupt）；花费提问→analytics（深模型综合"刀具占 70.9%"）；注入输入→guard 拦截。
 
-1. `agent/tools.py`：给工具加 `metadata` 副作用标志 `is_read_only / is_destructive / is_concurrency_safe`；`create_requirement / transfer_to_human` 标 `is_destructive=True`。
-2. `agent/data/`：`PurchaseRepository` 接口 + `SeedRepository`（合成数据）；`search_purchase_history` 走它（为 seed/real 口子打地基，`DATA_SOURCE=seed|real` 切换，real 路径进 `.gitignore`）。
-3. `agent/subagents/intake.py`：把 M1 ReAct 图收进来，做成**自带 state、返回 Pydantic `IntakeResult` 摘要**的 subagent；用**自定义 tools 节点**实现 `is_destructive`→`interrupt()` 二次确认。
-4. `agent/orchestrator.py`：薄父图，路由用户输入 → 调 intake 子图 → **父 state 只存 `IntakeResult` 摘要，不并入 subagent 内部 messages**（上下文隔离的实现）。
-5. `agent/state.py` / `main.py`：补 `ParentState`、改入口。
+## 4. 本会话自主决策记录（请过目，有异议说一声即可回退）
 
-**M2 验收**：父路由到 intake；父 state 只含结构化摘要、不含子 agent 内部消息；destructive 工具执行前触发确认。
-**M2 面试题**：schema 双用解决什么 bug？副作用标志为何挂工具不挂主循环？父怎么只拿摘要、不污染上下文？plan-execute(父) vs ReAct(子) 何时用哪个？结构化输出 vs prompt 求 JSON？
+1. **删 `agent/graph.py`**（收进 subagents/intake.py，避免两份真相）。
+2. **工具元数据用 `extras=`**（langchain_core 1.4 `@tool` 不再收 `metadata=`）。
+3. **结构化输出统一 `method="function_calling"`**（DeepSeek 不支持默认 json_schema，400）。
+4. **上下文隔离 = 不同 state schema + wrapper 节点**（探针实测后定方案，INTERVIEW 故事 2）。
+5. **多轮 = 父图 durable 对话喂子图种子**，子图跨轮新鲜启动；§5b Q1 用 **draft hint** 解决重复查历史。
+6. **持久化做成 `get_checkpointer()` 工厂**：默认 memory（测试），sqlite 演示跨重启续跑，postgres 生产口子。**没强上 Postgres**——理由：portfolio 仓库要零部署可跑，sqlite 已证明同一"durable resume"性质，postgres 同接口可换。
+7. **模型分层按"步骤能力"而非"agent"分**：实测 deepseek-reasoner 不支持 function-calling，故深模型只用于无工具的纯推理综合。
+8. **eval 默认跳过、`RUN_EVAL=1` 才跑**：确定性单测当门禁，eval 当带 secret 的回归 job。
+9. **护栏用规则不用 LLM**，放父图入口（PRD §9 不可逆动作走确定性校验）。
+10. **`create_requirement` 仍是 mock 回执**（不真写库）：真正落库等接生产 DB。
+11. **`main.py` 加 `sys.stdout.reconfigure(utf-8)`**（防 Windows GBK 遇 emoji 崩）。
+
+## 5b. 原疑问 → 已按推荐处理 ✅
+
+- **Q1 子图跨轮重复查历史** → 已加 `_draft_hint`：父图把上轮 draft 当上下文喂子图（M3 完成）。
+- **Q2 路由必要性** → 保留路由；M4 加了 Analytics，路由现在区分 intake/analytics/direct，**已物有所值**。
+- **Q3 每轮多次 LLM 调用** → 模型分层已落地；进一步降延迟（如单 subagent 跳过路由、缓存）列入 P2 优化。
+- **Q4 简历口径** → 已整理成可直接用的 bullet，见 `docs/INTERVIEW.md` 末尾"简历口径"。
+
+## 4next. 下一步建议（P2 / 打磨）
+
+- **Compliance subagent**（查表四标志 REACH/RoHS/CMRT/RBA）：纯 mock 查表，最快能加的第 3 个 subagent，进一步证明架构可扩展。
+- **Sourcing subagent**：接 PartFuse 真实电子料 API（需 key/access，先留接口）。
+- **打磨**：扩 eval golden 集（更多边界样本）；接一次真实 LangSmith 看 trace 截图（放简历/作品集）；README 加架构图。
+- **简历**：把 bullet 落到中英文简历；准备 demo 录屏（多轮受理 + HITL + 分析 + 护栏拦截）。
 
 ## 5. 之后里程碑（详见 PRD §10）
 

@@ -1,0 +1,8 @@
+{"id": "route-greet", "input": "你好，你能帮我做什么？", "expect_route": "direct"}
+{"id": "route-buy", "input": "我要买几个轴承", "expect_route": "intake"}
+{"id": "route-spend", "input": "我们哪个物料类别花钱最多？", "expect_route": "analytics"}
+{"id": "route-unrelated", "input": "今天深圳天气怎么样", "expect_route": "direct"}
+{"id": "intake-extract", "input": "买10个SKF 6204轴承，项目IML001，链接 https://item.taobao.com/item.htm?id=123", "expect_route": "intake", "expect_draft": {"quantity": 10, "project_code": "IML001"}}
+{"id": "intake-missing", "input": "我要买点螺丝", "expect_route": "intake", "judge": "助手应当追问缺失的必填项(链接/份数/项目代号之一)，而不是直接下单"}
+{"id": "analytics-category", "input": "各物料类别的采购花费分布如何？", "expect_route": "analytics", "judge": "回答应指出刀具是花费最高的类别"}
+{"id": "analytics-project", "input": "按项目看，哪个项目采购金额最高？", "expect_route": "analytics", "judge": "回答应基于数据给出某个 IML 项目作为最高，并带金额"}

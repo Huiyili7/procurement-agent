@@ -5,18 +5,29 @@
 
 ## 这是什么（架构）
 
-一个手写的 **ReAct StateGraph**（不是 `create_react_agent` 黑盒）：
+**父 Orchestrator + 角色化 Subagent**，全手写（不用 `create_react_agent`/`langgraph-supervisor` 黑盒）：
 
 ```
-START → agent ──(LLM 想调工具?)──是──> tools ──> agent ──> …(循环)
-                              └──否──> END
+用户 → 父图 route(结构化路由) ──intake──> Intake 子图(自有 state/工具/prompt)
+                              └─direct──> 直接回复          │
+父图只收 IntakeResult 摘要(上下文隔离) ◄───────────────────┘
+Intake 子图：agent ──tool_calls?──是──> tools(自定义,破坏性→interrupt 确认) ──> agent
+                                  └─否──> summarize(结构化输出 IntakeResult) → END
 ```
 
-- `agent/state.py` — 图状态（含 `add_messages` reducer 的对话记忆）
-- `agent/tools.py` — 工具：查历史复用、校验链接（MVP 用 mock，后接生产 Postgres）
-- `agent/graph.py` — StateGraph 装配：`agent` 推理节点 + `tools` 执行节点 + 条件边
-- `agent/config.py` — LLM 入口（OpenAI 兼容，换供应商只改 .env）
-- `main.py` — 命令行多轮对话
+- `agent/config.py` — LLM 入口 + `get_structured_llm`（DeepSeek 兼容的结构化输出）
+- `agent/schemas.py` — Pydantic 数据契约：`RequirementDraft / IntakeResult / RouteDecision`
+- `agent/state.py` — `IntakeState`(子) / `ParentState`(父)，两个不同 schema = 隔离的根
+- `agent/tools.py` — **工具契约层**：副作用标志 `SideEffects` + 4 个 Intake 工具
+- `agent/data/` — **Repository Pattern**：`DATA_SOURCE=seed|real` 切换，工具不感知数据来源
+- `agent/subagents/intake.py` — Intake 子图（含 HITL `interrupt` 二次确认）
+- `agent/orchestrator.py` — 薄父图（路由 + 调子图 + 存摘要，带 checkpointer）
+- `main.py` — 命令行多轮对话 + HITL 确认循环
+- `api.py` + `web/index.html` — FastAPI 服务 + 极简聊天前端（多轮 / 下单确认弹窗）
+- `Dockerfile` + `docker-compose.yml` — app + Postgres 双容器部署
+- `eval/` — 评测集 + 指标 harness（routing / 字段抽取 / LLM-judge）
+- `tests/` — 契约/数据层/隔离/HITL/持久化/分析/护栏 的确定性单测（不联网）
+- `docs/INTERVIEW.md` — 面试题库（题目 + 答案）· `docs/DEPLOY.md` — 部署/Docker 指南
 
 ## 运行
 
@@ -24,24 +35,27 @@ START → agent ──(LLM 想调工具?)──是──> tools ──> agent �
 # 需 Python 3.11+
 uv venv && uv pip install -e .      # 或：python -m venv .venv && pip install -e .
 cp .env.example .env                # 填入 API key
-python main.py
+
+python main.py                      # A. 命令行
+uvicorn api:app --reload            # B. Web 服务(需 pip install -e ".[server]")，开 http://127.0.0.1:8000
+docker compose up --build           # C. Docker：app + Postgres 双容器，开 http://localhost:8000
 ```
+三种用法与 Docker 概念详见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-试：`我要买几个轴承` →（agent 应自动查历史复用并追问份数/项目代号）
+试：`我要买几个轴承` →（agent 自动查历史复用、追问缺失项；补齐四项后说"确认下单"会触发 HITL 确认）
 
-## 迭代路线（每步对应一个 LangGraph 核心概念）
+测试：`python -m pytest tests/ -q` →（13 passed，确定性、不联网）
 
-1. ✅ **最小 ReAct 图** — StateGraph / 条件边 / ToolNode / tool-calling 循环
-2. ⬜ **结构化受理** — 把 messages 升级为 draft/missing 状态机 + 结构化输出(Pydantic)
-3. ⬜ **人在环(HITL)** — `interrupt()` 做澄清/审批
-4. ⬜ **持久化** — PostgresSaver checkpointer + thread_id（替代 main.py 的手动 history）
-5. ⬜ **评测 + 可观测** — eval 集 + LLM-as-judge + LangSmith 追踪 + CI
-6. ⬜ **MCP 工具 + 多 Agent** — supervisor 路由 受理/分析copilot/比价 子 agent
+## 迭代路线
 
-## 面试自检（搭完里程碑1你应能答）
+1. ✅ **M1 最小 ReAct 图** — StateGraph / 条件边 / ToolNode / tool-calling 循环
+2. ✅ **M2 父+Subagent 地基** — 工具契约层 / Repository 数据层 / Intake 子图(含 HITL) / 薄父 Orchestrator + 上下文隔离 / 结构化输出
+3. ✅ **M3 持久化强化** — checkpointer 工厂(memory/sqlite/postgres) + 跨重启续跑 + 跨轮 draft 上下文
+4. ✅ **M4 第 2 个 subagent(Analytics) + 模型分层** — 快模型工具调用 / 深模型纯推理综合 / 工具裁剪
+5. ✅ **M5 评测 + 可观测** — eval 集 + LLM-as-judge + CI 门槛 + LangSmith(env 驱动)
+6. ✅ **护栏** — 父图入口确定性输入校验(拦 prompt-injection)
+7. ⬜ **P2** — Compliance(查表四标志,可 mock) / Sourcing(接 PartFuse 真实 API)
 
-- ReAct 循环在 LangGraph 里靠什么实现？（条件边 `should_continue` + `tools→agent` 回边）
-- `State` 的更新是覆盖还是合并？`add_messages` 这个 reducer 解决什么？
-- LLM 怎么"知道"有哪些工具、何时调？（`bind_tools` 把 docstring/类型转 JSON Schema）
-- workflow 和 agent 的本质区别？（流程是写死的 DAG，还是 LLM 运行时决定下一步）
-- 循环为什么不会无限转？（LLM 不再产生 tool_calls 时路由到 END）
+## 面试自检
+
+所有里程碑的面试题（**题目 + 答案**）见 [`docs/INTERVIEW.md`](docs/INTERVIEW.md)。

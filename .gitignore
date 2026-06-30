@@ -8,3 +8,4 @@ dist/
 .langgraph_api/
 .ruff_cache/
 .pytest_cache/
+agent/data/_real/

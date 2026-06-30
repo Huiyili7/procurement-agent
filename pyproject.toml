@@ -9,6 +9,7 @@ description = "基于 LangGraph 的采购受理 Agent（从 xTool 机械部自�
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=0.2.50",
+    "langgraph-checkpoint-sqlite>=2.0.0",
     "langchain-openai>=0.2.0",
     "langchain-core>=0.3.0",
     "python-dotenv>=1.0.0",
@@ -20,9 +21,17 @@ dev = [
     "ruff>=0.6.0",
     "pytest>=8.0.0",
 ]
+server = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+]
+postgres = [
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.1.0",
+]
 
-[tool.setuptools]
-packages = ["agent"]
+[tool.setuptools.packages.find]
+include = ["agent*"]
 
 [tool.ruff]
 line-length = 100

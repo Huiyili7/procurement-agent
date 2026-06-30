@@ -1,0 +1,37 @@
+# docker-compose：一条命令起两个容器(应用 + Postgres)，并把它们连成一个网络。
+# 用法：docker compose up --build   →   打开 http://localhost:8000
+
+services:
+  # ── 数据库容器 ──
+  db:
+    image: postgres:16-alpine          # 官方 Postgres 镜像(alpine 体积小)
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+      POSTGRES_DB: agent
+    volumes:
+      - pgdata:/var/lib/postgresql/data # 命名卷：容器删了数据还在(持久化的关键)
+    healthcheck:                        # 让 compose 知道 DB 何时"真的就绪"
+      test: ["CMD-SHELL", "pg_isready -U agent"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ── 应用容器 ──
+  app:
+    build: .                            # 用当前目录的 Dockerfile 构建
+    ports:
+      - "8000:8000"                     # 主机:容器 端口映射，浏览器才能访问
+    env_file:
+      - .env                            # 注入 OPENAI_API_KEY / BASE_URL / MODEL_NAME 等
+    environment:
+      # environment 优先级高于 env_file：强制用 postgres，覆盖 .env 里的 CHECKPOINTER=memory
+      CHECKPOINTER: postgres
+      # 注意 host 是 "db"——compose 里服务名就是容器间互访的主机名(不是 localhost)
+      PG_CONN: postgresql://agent:agent@db:5432/agent
+    depends_on:
+      db:
+        condition: service_healthy      # 等 DB healthcheck 通过再启动 app(再叠加代码里的重试兜底)
+
+volumes:
+  pgdata:                               # 声明上面用到的命名卷
