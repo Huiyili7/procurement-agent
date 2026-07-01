@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>采购受理 Agent</title>
+  <!-- marked：把大模型输出的 Markdown(加粗/表格/列表)渲染成 HTML -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, "Microsoft YaHei", sans-serif;
@@ -14,12 +16,20 @@
     #log { flex: 1; overflow-y: auto; padding: 16px 20px; }
     .msg { margin: 10px 0; display: flex; }
     .msg.user { justify-content: flex-end; }
-    .bubble { max-width: 78%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap;
-              line-height: 1.5; font-size: 14px; }
-    .user .bubble { background: #2b5cff; color: #fff; border-bottom-right-radius: 2px; }
+    .bubble { max-width: 78%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; font-size: 14px; }
+    .user .bubble { background: #2b5cff; color: #fff; border-bottom-right-radius: 2px; white-space: pre-wrap; }
     .bot .bubble { background: #fff; border: 1px solid #e5e6eb; border-bottom-left-radius: 2px; }
-    .meta { font-size: 12px; color: #86909c; margin: 2px 6px; }
-    .step { font-size: 12px; color: #86909c; margin: 4px 10px; font-style: italic; }
+    /* 实时状态气泡：思考中 / 显示当前步骤，淡色+呼吸动画 */
+    .bubble.thinking { color: #86909c; font-style: italic; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+    /* 渲染后的 Markdown 在气泡里的排版 */
+    .bot .bubble p { margin: 0 0 8px; } .bot .bubble p:last-child { margin-bottom: 0; }
+    .bot .bubble ul, .bot .bubble ol { margin: 6px 0; padding-left: 20px; }
+    .bot .bubble table { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+    .bot .bubble th, .bot .bubble td { border: 1px solid #e5e6eb; padding: 4px 8px; }
+    .bot .bubble th { background: #f7f8fa; }
+    .bot .bubble code { background: #f2f3f5; padding: 1px 5px; border-radius: 4px; }
+    .bot .bubble pre { background: #f2f3f5; padding: 8px; border-radius: 6px; overflow-x: auto; }
     #confirm { background: #fff7e6; border: 1px solid #ffd591; border-radius: 12px;
                padding: 12px 14px; margin: 10px 0; font-size: 14px; }
     #confirm button { margin-right: 8px; margin-top: 8px; padding: 6px 16px; border: none;
@@ -36,11 +46,11 @@
 </head>
 <body>
   <div id="main">
-    <header>采购受理 Agent<small>多轮 · 历史复用 · 人在环确认 · 花费分析</small></header>
+    <header>采购受理 Agent<small>多轮 · 历史复用 · 人在环确认 · 花费分析 · 合规查验</small></header>
     <div id="log"></div>
     <div id="panel"></div>
     <div id="bar">
-      <input id="inp" placeholder="例如：我要买几个轴承 / 哪个类别花钱最多" autofocus />
+      <input id="inp" placeholder="例如：我要买几个轴承 / 哪个类别花钱最多 / 米思米合规吗" autofocus />
       <button id="send">发送</button>
     </div>
   </div>
@@ -53,20 +63,37 @@
     const inp = document.getElementById("inp");
     const send = document.getElementById("send");
 
-    function addMsg(text, who) {
+    const renderMd = (t) => (window.marked ? marked.parse(t) : t);
+
+    function addBubble(who) {
       const row = document.createElement("div");
       row.className = "msg " + who;
-      row.innerHTML = `<div class="bubble"></div>`;
-      row.querySelector(".bubble").textContent = text;
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      row.appendChild(bubble);
       log.appendChild(row);
       log.scrollTop = log.scrollHeight;
+      return { row, bubble };
+    }
+
+    function addUser(text) {
+      addBubble("user").bubble.textContent = text;
+    }
+
+    // 每一轮共用一个"实时状态气泡"：先显示思考中，随每个步骤原地更新，最后变成答案。
+    let live = null; // {row, bubble}
+
+    function startLive() {
+      live = addBubble("bot");
+      live.bubble.classList.add("thinking");
+      live.bubble.textContent = "思考中…";
     }
 
     function showPanel(data) {
       if (data.draft) {
         const d = data.draft;
         panel.textContent = `采购单草稿：物料=${d.item_name ?? "-"} 链接=${d.item_url ?? "-"} `
-          + `份数=${d.quantity ?? "-"} 项目=${d.project_code ?? "-"} | 缺=${(data.missing||[]).join(",")||"无"} | 阶段=${data.stage}`;
+          + `份数=${d.quantity ?? "-"} 项目=${d.project_code ?? "-"} | 缺=${(data.missing || []).join(",") || "无"} | 阶段=${data.stage}`;
       } else if (data.analysis) {
         panel.textContent = `分析口径：${data.analysis.method} | 关键数字：${JSON.stringify(data.analysis.figures)}`;
       } else if (data.compliance) {
@@ -76,12 +103,11 @@
       }
     }
 
-    // HITL：服务端停在 interrupt 时，弹确认框，按钮把 y/n 用 /resume 喂回去。
     function showConfirm(data) {
       const box = document.createElement("div");
       box.id = "confirm";
       box.innerHTML = `⚠ 需要确认（不可逆动作）<br>动作：<b>${data.tool}</b><br>`
-        + `参数：${JSON.stringify(data.args, null, 0)}<br>`
+        + `参数：${JSON.stringify(data.args)}<br>`
         + `<button class="ok">确认执行</button><button class="no">取消</button>`;
       log.appendChild(box);
       log.scrollTop = log.scrollHeight;
@@ -89,24 +115,29 @@
       box.querySelector(".no").onclick = () => { box.remove(); streamPost("/resume/stream", { thread_id: threadId, decision: "n" }); };
     }
 
-    function addStep(text) {
-      const el = document.createElement("div");
-      el.className = "step";
-      el.textContent = "· " + text;
-      log.appendChild(el);
-      log.scrollTop = log.scrollHeight;
-    }
-
     function handle(data) {
-      if (data.type === "step") { addStep(data.label); return; }
-      if (data.type === "interrupt") { showConfirm(data); return; }
-      if (data.type === "reply") { addMsg(data.reply, "bot"); showPanel(data); return; }
+      if (data.type === "step") {
+        if (!live) startLive();
+        live.bubble.textContent = "· " + data.label; // 步骤原地刷新，不刷屏
+        log.scrollTop = log.scrollHeight;
+      } else if (data.type === "interrupt") {
+        if (live) { live.row.remove(); live = null; }
+        showConfirm(data);
+      } else if (data.type === "reply") {
+        if (!live) startLive();
+        live.bubble.classList.remove("thinking");
+        live.bubble.innerHTML = renderMd(data.reply); // 状态气泡直接变成渲染好的答案
+        live = null;
+        showPanel(data);
+        log.scrollTop = log.scrollHeight;
+      }
       // type === "done"：流结束，无需处理
     }
 
     // 读 SSE 流：按 "\n\n" 切帧，取 data: 行解析成事件逐个 handle。
     async function streamPost(url, body) {
       send.disabled = true;
+      startLive(); // 立刻给"思考中"反馈，消除点完发送后的空白
       try {
         const resp = await fetch(url, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -126,7 +157,8 @@
           }
         }
       } catch (e) {
-        addMsg("（网络错误：" + e + "）", "bot");
+        if (live) { live.bubble.classList.remove("thinking"); live.bubble.textContent = "（网络错误：" + e + "）"; live = null; }
+        else addBubble("bot").bubble.textContent = "（网络错误：" + e + "）";
       } finally {
         send.disabled = false; inp.focus();
       }
@@ -135,7 +167,7 @@
     function submit() {
       const text = inp.value.trim();
       if (!text) return;
-      addMsg(text, "user");
+      addUser(text);
       inp.value = "";
       streamPost("/chat/stream", { thread_id: threadId, message: text });
     }
